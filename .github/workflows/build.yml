@@ -1,0 +1,283 @@
+name: Build sedutil
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-cli:
+    name: Build sedutil_LINUX.tgz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for git describe
+
+      - name: Install dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential g++ autoconf automake \
+            libsystemd-dev \
+            gcc-multilib g++-multilib \
+            libsystemd-dev:i386
+
+      - name: Build sedutil-cli (32-bit and 64-bit)
+        run: |
+          set -ex
+          autoreconf -i
+          ./configure --enable-silent-rules
+
+          # 32-bit build
+          mkdir -p linux/CLI/dist/Release_i686/
+          make CFLAGS='-m32 -O2' CXXFLAGS='-m32 -O2' all
+          cp sedutil-cli linux/CLI/dist/Release_i686/
+          make clean
+
+          # 64-bit build
+          mkdir -p linux/CLI/dist/Release_x86_64/
+          make CFLAGS='-m64 -O2' CXXFLAGS='-m64 -O2' all
+          cp sedutil-cli linux/CLI/dist/Release_x86_64/
+
+          # Strip binaries
+          strip --strip-debug --strip-unneeded linux/CLI/dist/Release_i686/sedutil-cli
+          strip --strip-debug --strip-unneeded linux/CLI/dist/Release_x86_64/sedutil-cli
+
+          # Package
+          cd linux
+          tar --xform 's,^,sedutil/,' -czf sedutil_LINUX.tgz \
+            *.txt TestSuite.sh ../docs/* \
+            -C ./CLI/dist Release_i686/sedutil-cli Release_x86_64/sedutil-cli
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sedutil_LINUX
+          path: linux/sedutil_LINUX.tgz
+
+  build-images:
+    name: Build PBA and Rescue images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential g++ autoconf automake \
+            libsystemd-dev \
+            gdisk dosfstools e2fsprogs \
+            wget git xz-utils cpio gzip \
+            bc rsync unzip python3 file \
+            gcc-multilib g++-multilib \
+            libsystemd-dev:i386 \
+            libncurses-dev
+
+      - name: Cache syslinux download
+        uses: actions/cache@v4
+        with:
+          path: images/scratch/syslinux-6.03*
+          key: syslinux-6.03
+
+      - name: Cache buildroot git clone
+        uses: actions/cache@v4
+        with:
+          path: images/scratch/buildroot.git
+          key: buildroot-bare-${{ hashFiles('images/conf') }}
+
+      - name: Download resources
+        working-directory: images
+        run: |
+          set -ex
+          source conf
+          mkdir -p scratch
+          cd scratch
+          if [ ! -f "${SYSLINUX}.tar.xz" ]; then
+            wget "https://www.kernel.org/pub/linux/utils/boot/syslinux/${SYSLINUX}.tar.xz"
+          fi
+          if [ ! -d "${SYSLINUX}" ]; then
+            tar xf "${SYSLINUX}.tar.xz"
+          fi
+          if [ ! -d buildroot.git ]; then
+            git clone --bare https://github.com/buildroot/buildroot.git buildroot.git
+          fi
+
+      - name: Build PBA rootfs via buildroot
+        working-directory: images
+        run: |
+          set -ex
+          source conf
+          cd scratch
+
+          rm -rf buildroot
+          git clone buildroot.git
+          cd buildroot
+          git checkout -b PBABUILD "${BUILDROOT_TAG}"
+          git reset --hard
+          git clean -df
+
+          # Apply patches
+          cd ..
+          mkdir -p patches
+          cp -r ../buildroot/patches/* patches/
+
+          cd buildroot
+
+          # 64-bit out-of-tree build
+          mkdir 64bit
+          cp ../../buildroot/64bit/.config 64bit/
+          cp ../../buildroot/64bit/* 64bit/ 2>/dev/null || true
+          cp -r ../../buildroot/64bit/overlay 64bit/
+
+          # 32-bit out-of-tree build
+          mkdir 32bit
+          cp ../../buildroot/32bit/.config 32bit/
+          cp ../../buildroot/32bit/* 32bit/ 2>/dev/null || true
+          cp -r ../../buildroot/32bit/overlay 32bit/
+
+          # Add sedutil package
+          sed -i '/sedutil/d' package/Config.in
+          sed -i '/menu "System tools"/a \\tsource "package/sedutil/Config.in"' package/Config.in
+          cp -r ../../buildroot/package/sedutil/ package/
+
+          # Build sedutil dist tarball for buildroot to consume
+          cd "$GITHUB_WORKSPACE"
+          autoreconf -i
+          ./configure
+          make dist
+          mkdir -p images/scratch/buildroot/dl/
+          cp sedutil-*.tar.gz images/scratch/buildroot/dl/
+          make distclean || true
+
+          cd images/scratch/buildroot
+          echo "Building 64-bit PBA Linux system"
+          make O=64bit 2>&1 | tee 64bit/build_output.txt
+          echo "Building 32-bit PBA Linux system"
+          make O=32bit 2>&1 | tee 32bit/build_output.txt
+
+      - name: Build UEFI64.img.gz
+        working-directory: images
+        run: |
+          set -ex
+          source conf
+          VERSIONINFO=$(git -C "$GITHUB_WORKSPACE" describe --dirty 2>/dev/null || echo tarball)
+          BUILDTYPE=UEFI64
+          BUILDIMG="${BUILDTYPE}-${VERSIONINFO}.img"
+
+          sudo rm -rf "${BUILDTYPE}"; mkdir "${BUILDTYPE}"; cd "${BUILDTYPE}"
+          dd if=/dev/zero of="${BUILDIMG}" bs=1M count=32
+          printf 'n\n\n\n\nef00\nw\nY\n' | gdisk "${BUILDIMG}"
+          LOOPDEV=$(sudo losetup --show -f -o 1048576 "${BUILDIMG}")
+          sudo mkfs.vfat "$LOOPDEV" -n "${BUILDTYPE}"
+          sudo mkdir image
+          sudo mount "$LOOPDEV" image
+          sudo chmod 777 image
+          sudo mkdir -p image/EFI/boot
+          sudo cp "../scratch/${SYSLINUX}/efi64/efi/syslinux.efi" image/EFI/boot/bootx64.efi
+          sudo cp "../scratch/${SYSLINUX}/efi64/com32/elflink/ldlinux/ldlinux.e64" image/EFI/boot/
+          sudo cp ../scratch/buildroot/64bit/images/bzImage image/EFI/boot/
+          sudo cp ../scratch/buildroot/64bit/images/rootfs.cpio.xz image/EFI/boot/
+          sudo cp ../buildroot/syslinux.cfg image/EFI/boot/
+          sudo umount image
+          sudo losetup -d "$LOOPDEV"
+          gzip "${BUILDIMG}"
+
+      - name: Build BIOS32.img.gz
+        working-directory: images
+        run: |
+          set -ex
+          source conf
+          VERSIONINFO=$(git -C "$GITHUB_WORKSPACE" describe --dirty 2>/dev/null || echo tarball)
+          BUILDTYPE=BIOS32
+          BUILDIMG="${BUILDTYPE}-${VERSIONINFO}.img"
+
+          sudo rm -rf "${BUILDTYPE}"; mkdir "${BUILDTYPE}"; cd "${BUILDTYPE}"
+          dd if=/dev/zero of="${BUILDIMG}" bs=1M count=32
+          printf 'o\nn\np\n1\n\n\na\n1\nw\n' | fdisk "${BUILDIMG}"
+          dd if="../scratch/${SYSLINUX}/bios/mbr/mbr.bin" of="${BUILDIMG}" count=1 conv=notrunc bs=512
+          LOOPDEV=$(sudo losetup --show -f -o 1048576 "${BUILDIMG}")
+          sudo mkfs.ext4 "$LOOPDEV" -L "${BUILDTYPE}"
+          mkdir image
+          sudo mount "$LOOPDEV" image
+          sudo chmod 777 image
+          sudo mkdir -p image/boot/extlinux
+          sudo "../scratch/${SYSLINUX}/bios/extlinux/extlinux" --install image/boot/extlinux
+          sudo cp ../scratch/buildroot/32bit/images/bzImage image/boot/extlinux/
+          sudo cp ../scratch/buildroot/32bit/images/rootfs.cpio.xz image/boot/extlinux/
+          sudo cp ../buildroot/syslinux.cfg image/boot/extlinux/extlinux.conf
+          sudo umount image
+          sudo losetup -d "$LOOPDEV"
+          gzip "${BUILDIMG}"
+
+      - name: Build RESCUE64.img.gz
+        working-directory: images
+        run: |
+          set -ex
+          source conf
+          VERSIONINFO=$(git -C "$GITHUB_WORKSPACE" describe --dirty 2>/dev/null || echo tarball)
+          BUILDTYPE=RESCUE64
+          ROOTDIR=64bit
+          BUILDIMG="${BUILDTYPE}-${VERSIONINFO}.img"
+
+          # Remaster rootfs with rescue tools and embedded boot images
+          sudo rm -rf scratch/rescuefs
+          mkdir scratch/rescuefs
+          cd scratch/rescuefs
+          xz --decompress --stdout "../buildroot/${ROOTDIR}/images/rootfs.cpio.xz" | sudo cpio -i -H newc -d
+          cat > /tmp/issue <<ISSUEEOF
+          * ***********************************
+          * DTA sedutil rescue image ${BUILDIMG}
+          *
+          * Login as root, there is no password
+          *
+          * ***********************************
+          ISSUEEOF
+          sudo mv /tmp/issue etc/issue
+          sudo rm -f etc/init.d/S99*
+          sudo mkdir -p usr/sedutil
+          sudo cp ../../UEFI64/UEFI64-*.img.gz usr/sedutil/
+          sudo cp ../../BIOS32/BIOS32-*.img.gz usr/sedutil/
+          sudo find . | sudo cpio -o -H newc | xz -9 -C crc32 -c > "../buildroot/${ROOTDIR}/images/rescuefs.cpio.xz"
+          cd ../..
+          sudo rm -rf scratch/rescuefs
+
+          # Build RESCUE64 image (UEFI/GPT)
+          sudo rm -rf "${BUILDTYPE}"; mkdir "${BUILDTYPE}"; cd "${BUILDTYPE}"
+          dd if=/dev/zero of="${BUILDIMG}" bs=1M count=75
+          printf 'n\n\n\n\nef00\nw\nY\n' | gdisk "${BUILDIMG}"
+          LOOPDEV=$(sudo losetup --show -f -o 1048576 "${BUILDIMG}")
+          sudo mkfs.vfat "$LOOPDEV" -n "${BUILDTYPE}"
+          mkdir image
+          sudo mount "$LOOPDEV" image
+          sudo chmod 777 image
+          sudo mkdir -p image/EFI/boot
+          sudo cp "../scratch/${SYSLINUX}/efi64/efi/syslinux.efi" image/EFI/boot/bootx64.efi
+          sudo cp "../scratch/${SYSLINUX}/efi64/com32/elflink/ldlinux/ldlinux.e64" image/EFI/boot/
+          sudo cp "../scratch/buildroot/${ROOTDIR}/images/bzImage" image/EFI/boot/
+          sudo cp "../scratch/buildroot/${ROOTDIR}/images/rescuefs.cpio.xz" image/EFI/boot/rootfs.cpio.xz
+          sudo cp ../buildroot/syslinux.cfg image/EFI/boot/
+          sudo umount image
+          sudo losetup -d "$LOOPDEV"
+          gzip "${BUILDIMG}"
+
+      - name: Collect image artifacts
+        working-directory: images
+        run: |
+          VERSIONINFO=$(git -C "$GITHUB_WORKSPACE" describe --dirty 2>/dev/null || echo tarball)
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "UEFI64/UEFI64-${VERSIONINFO}.img.gz" "$GITHUB_WORKSPACE/dist/UEFI64.img.gz"
+          cp "RESCUE64/RESCUE64-${VERSIONINFO}.img.gz" "$GITHUB_WORKSPACE/dist/RESCUE64.img.gz"
+          ls -lh "$GITHUB_WORKSPACE/dist/"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UEFI64
+          path: dist/UEFI64.img.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RESCUE64
+          path: dist/RESCUE64.img.gz
