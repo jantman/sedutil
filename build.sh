@@ -175,12 +175,14 @@ mkdir 64bit
 cp ../../buildroot/64bit/.config 64bit/
 cp ../../buildroot/64bit/* 64bit/ 2>/dev/null || true
 cp -r ../../buildroot/64bit/overlay 64bit/
+touch 64bit/.br-external.mk
 
 # Set up 32-bit out-of-tree build
 mkdir 32bit
 cp ../../buildroot/32bit/.config 32bit/
 cp ../../buildroot/32bit/* 32bit/ 2>/dev/null || true
 cp -r ../../buildroot/32bit/overlay 32bit/
+touch 32bit/.br-external.mk
 
 # Add sedutil package to buildroot
 sed -i '/sedutil/d' package/Config.in

@@ -15,40 +15,28 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
             build-essential g++ autoconf automake \
-            libsystemd-dev libnvme-dev \
-            gcc-multilib g++-multilib \
-            libsystemd-dev:i386 libnvme-dev:i386
+            libsystemd-dev libnvme-dev
 
-      - name: Build sedutil-cli (32-bit and 64-bit)
+      - name: Build sedutil-cli (64-bit)
         run: |
           set -ex
           autoreconf -i
           ./configure --enable-silent-rules
 
-          # 32-bit build
-          mkdir -p linux/CLI/dist/Release_i686/
-          make CFLAGS='-m32 -O2' CXXFLAGS='-m32 -O2' all
-          cp sedutil-cli linux/CLI/dist/Release_i686/
-          make clean
-
-          # 64-bit build
           mkdir -p linux/CLI/dist/Release_x86_64/
           make CFLAGS='-m64 -O2' CXXFLAGS='-m64 -O2' all
           cp sedutil-cli linux/CLI/dist/Release_x86_64/
 
-          # Strip binaries
-          strip --strip-debug --strip-unneeded linux/CLI/dist/Release_i686/sedutil-cli
           strip --strip-debug --strip-unneeded linux/CLI/dist/Release_x86_64/sedutil-cli
 
           # Package
           cd linux
           tar --xform 's,^,sedutil/,' -czf sedutil_LINUX.tgz \
             *.txt TestSuite.sh ../docs/* \
-            -C ./CLI/dist Release_i686/sedutil-cli Release_x86_64/sedutil-cli
+            -C ./CLI/dist Release_x86_64/sedutil-cli
 
       - uses: actions/upload-artifact@v4
         with:
@@ -106,7 +94,8 @@ jobs:
       - name: Build PBA rootfs via buildroot
         working-directory: images
         run: |
-          set -ex
+          set -eo pipefail
+          set -x
           source conf
           cd scratch
 
@@ -129,12 +118,14 @@ jobs:
           cp ../../buildroot/64bit/.config 64bit/
           cp ../../buildroot/64bit/* 64bit/ 2>/dev/null || true
           cp -r ../../buildroot/64bit/overlay 64bit/
+          touch 64bit/.br-external.mk
 
           # 32-bit out-of-tree build
           mkdir 32bit
           cp ../../buildroot/32bit/.config 32bit/
           cp ../../buildroot/32bit/* 32bit/ 2>/dev/null || true
           cp -r ../../buildroot/32bit/overlay 32bit/
+          touch 32bit/.br-external.mk
 
           # Add sedutil package
           sed -i '/sedutil/d' package/Config.in
