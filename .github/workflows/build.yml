@@ -45,7 +45,10 @@ jobs:
 
   build-images:
     name: Build PBA and Rescue images
-    runs-on: ubuntu-latest
+    # buildroot 2017.05.1 builds host-gcc-4.9.4 which cannot compile under
+    # GCC 14 (Ubuntu 24.04) due to C++17 incompatibilities. Use 22.04 which
+    # ships GCC 11 and glibc 2.35.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
