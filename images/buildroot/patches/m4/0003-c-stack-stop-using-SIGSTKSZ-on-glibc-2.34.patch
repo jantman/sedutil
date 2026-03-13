@@ -4,13 +4,16 @@ Date: Mon, 8 Mar 2021 18:30:00 -0800
 Subject: [PATCH] c-stack: stop using SIGSTKSZ at preprocessing time
 
 Starting with glibc 2.34, SIGSTKSZ may not be a compile-time constant.
-Avoid using SIGSTKSZ in #if directives.
+Remove the #elif branch that uses SIGSTKSZ in a preprocessor comparison.
+
+---
+ lib/c-stack.c | 6 ------
+ 1 file changed, 6 deletions(-)
 
 diff --git a/lib/c-stack.c b/lib/c-stack.c
-index 1b1a100..e1e5a98 100644
 --- a/lib/c-stack.c
 +++ b/lib/c-stack.c
-@@ -52,12 +52,9 @@ typedef struct sigaltstack stack_t;
+@@ -52,12 +52,6 @@ typedef struct sigaltstack stack_t;
  #endif
  #ifndef SIGSTKSZ
  # define SIGSTKSZ 16384
@@ -22,5 +25,7 @@ index 1b1a100..e1e5a98 100644
 -# define SIGSTKSZ 16384
  #endif
 
-+
  #include <stdlib.h>
+--
+2.14.1
+
