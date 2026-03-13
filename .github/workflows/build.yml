@@ -46,24 +46,29 @@ jobs:
   build-images:
     name: Build PBA and Rescue images
     # buildroot 2017.05.1 builds host-gcc-4.9.4 which cannot compile under
-    # GCC 14 (Ubuntu 24.04) due to C++17 incompatibilities. Use 22.04 which
-    # ships GCC 11 and glibc 2.35.
-    runs-on: ubuntu-22.04
+    # modern host compilers that default to C++17 (bool operator++ removed).
+    # Use ubuntu-latest but run in an Ubuntu 20.04 container for GCC 9.
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Install dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y \
             build-essential g++ autoconf automake \
-            libsystemd-dev libnvme-dev \
+            libsystemd-dev sudo \
             gdisk dosfstools e2fsprogs \
             wget git xz-utils cpio gzip \
             bc rsync unzip python3 file \
-            libncurses-dev
+            libncurses-dev perl patch
 
       - name: Cache syslinux download
         uses: actions/cache@v4
