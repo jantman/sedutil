@@ -107,6 +107,8 @@ jobs:
         run: |
           set -eo pipefail
           set -x
+          # Fix safe directory for container (runner UID != container UID)
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           source conf
           cd scratch
 
