@@ -143,14 +143,22 @@ jobs:
           sed -i '/menu "System tools"/a \\tsource "package/sedutil/Config.in"' package/Config.in
           cp -r ../../buildroot/package/sedutil/ package/
 
-          # Build sedutil dist tarball for buildroot to consume
+          # Build a dist tarball from the 1.20.0 tag. The current source has
+          # newer dependencies (systemd, libnvme) and headers not listed in
+          # Makefile.am, making it incompatible with buildroot's minimal
+          # cross-compile environment. The PBA only needs stable sedutil-cli
+          # and linuxpba binaries; our syslinux.cfg fix is applied separately.
           cd "$GITHUB_WORKSPACE"
+          git stash --include-untracked || true
+          git checkout 1.20.0
           autoreconf -i
           ./configure
           make dist
           mkdir -p images/scratch/buildroot/dl/
           cp sedutil-*.tar.gz images/scratch/buildroot/dl/
           make distclean || true
+          git checkout -
+          git stash pop || true
 
           cd images/scratch/buildroot
           echo "Building 64-bit PBA Linux system"

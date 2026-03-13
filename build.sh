@@ -189,14 +189,22 @@ sed -i '/sedutil/d' package/Config.in
 sed -i '/menu "System tools"/a \\tsource "package/sedutil/Config.in"' package/Config.in
 cp -r ../../buildroot/package/sedutil/ package/
 
-# Make a distribution tarball from the current source
+# Build a dist tarball from the 1.20.0 tag. The current source has newer
+# dependencies (systemd, libnvme) incompatible with buildroot's minimal
+# cross-compile environment. The PBA only needs stable sedutil-cli and
+# linuxpba binaries; our syslinux.cfg fix is applied separately.
 cd "$SCRIPT_DIR"
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git stash --include-untracked || true
+git checkout 1.20.0
 autoreconf -i
 ./configure
 make dist
 mkdir -p images/scratch/buildroot/dl/
 cp sedutil-*.tar.gz images/scratch/buildroot/dl/
 make distclean || true
+git checkout "$CURRENT_BRANCH"
+git stash pop || true
 
 cd images/scratch/buildroot
 
