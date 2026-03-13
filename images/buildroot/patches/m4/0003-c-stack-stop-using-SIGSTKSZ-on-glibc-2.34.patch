@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Paul Eggert <eggert@cs.ucla.edu>
+Date: Mon, 8 Mar 2021 18:30:00 -0800
+Subject: [PATCH] c-stack: stop using SIGSTKSZ at preprocessing time
+
+Starting with glibc 2.34, SIGSTKSZ may not be a compile-time constant.
+Avoid using SIGSTKSZ in #if directives.
+
+diff --git a/lib/c-stack.c b/lib/c-stack.c
+index 1b1a100..e1e5a98 100644
+--- a/lib/c-stack.c
++++ b/lib/c-stack.c
+@@ -52,12 +52,9 @@ typedef struct sigaltstack stack_t;
+ #endif
+ #ifndef SIGSTKSZ
+ # define SIGSTKSZ 16384
+-#elif HAVE_LIBSIGSEGV && SIGSTKSZ < 16384
+-/* libsigsegv 2.6 through 2.8 have a bug where some architectures use
+-   more than the Linux default of an 8k alternate stack when deciding
+-   if a fault was caused by stack overflow.  */
+-# undef SIGSTKSZ
+-# define SIGSTKSZ 16384
+ #endif
+
++
+ #include <stdlib.h>
