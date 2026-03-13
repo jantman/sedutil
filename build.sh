@@ -59,7 +59,7 @@ if [ "$INSTALL_DEPS" -eq 1 ]; then
     sudo apt-get update
     sudo apt-get install -y \
         build-essential g++ autoconf automake \
-        libsystemd-dev \
+        libsystemd-dev libnvme-dev \
         gdisk dosfstools e2fsprogs \
         wget git xz-utils cpio gzip \
         bc rsync unzip python3 file \
