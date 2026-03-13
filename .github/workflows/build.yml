@@ -71,7 +71,7 @@ jobs:
             gdisk dosfstools e2fsprogs \
             wget git xz-utils cpio gzip \
             bc rsync unzip python3 file \
-            libncurses-dev perl patch
+            libncurses-dev perl patch python-is-python3
 
       - name: Cache syslinux download
         uses: actions/cache@v4
