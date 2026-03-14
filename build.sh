@@ -189,22 +189,23 @@ sed -i '/sedutil/d' package/Config.in
 sed -i '/menu "System tools"/a \\tsource "package/sedutil/Config.in"' package/Config.in
 cp -r ../../buildroot/package/sedutil/ package/
 
-# Build a dist tarball from the 1.20.0 tag. The current source has newer
-# dependencies (systemd, libnvme) incompatible with buildroot's minimal
-# cross-compile environment. The PBA only needs stable sedutil-cli and
-# linuxpba binaries; our syslinux.cfg fix is applied separately.
-cd "$SCRIPT_DIR"
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-git stash --include-untracked || true
-git checkout 1.20.0
+# Download 1.20.0 source and create dist tarball for buildroot.
+# The current source has newer dependencies (systemd, libnvme) incompatible
+# with buildroot's minimal cross-compile environment. The PBA only needs
+# stable sedutil-cli and linuxpba binaries; our syslinux.cfg fix is applied
+# separately via the boot image assembly steps.
+TMPDIR_DIST=$(mktemp -d)
+wget -q https://github.com/Drive-Trust-Alliance/sedutil/archive/refs/tags/1.20.0.tar.gz -O "$TMPDIR_DIST/sedutil-1.20.0-src.tar.gz"
+cd "$TMPDIR_DIST"
+tar xf sedutil-1.20.0-src.tar.gz
+cd sedutil-1.20.0
 autoreconf -i
 ./configure
 make dist
-mkdir -p images/scratch/buildroot/dl/
-cp sedutil-*.tar.gz images/scratch/buildroot/dl/
-make distclean || true
-git checkout "$CURRENT_BRANCH"
-git stash pop || true
+mkdir -p "$SCRIPT_DIR/images/scratch/buildroot/dl/"
+cp sedutil-*.tar.gz "$SCRIPT_DIR/images/scratch/buildroot/dl/"
+cd "$SCRIPT_DIR"
+rm -rf "$TMPDIR_DIST"
 
 cd images/scratch/buildroot
 
