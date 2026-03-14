@@ -159,8 +159,6 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/images/scratch/buildroot/dl/"
           cp sedutil-*.tar.gz "$GITHUB_WORKSPACE/images/scratch/buildroot/dl/"
           cd "$GITHUB_WORKSPACE/images/scratch/buildroot"
-
-          cd images/scratch/buildroot
           echo "Building 64-bit PBA Linux system"
           make O=64bit 2>&1 | tee 64bit/build_output.txt
           echo "Building 32-bit PBA Linux system"
