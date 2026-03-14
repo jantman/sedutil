@@ -1,3 +1,11 @@
+https://github.com/jantman/sedutil modern-dell-GHA branch
+
+sedutil fixed for modern Dell laptops / fixes [Drive-Trust-Alliance/sedutil #404](https://github.com/Drive-Trust-Alliance/sedutil/issues/404)
+
+See [releases](https://github.com/jantman/sedutil/releases) for downloads.
+
+----
+
 ![alt tag](https://avatars0.githubusercontent.com/u/13870012?v=3&s=200)
 
 This software is © 2014 Bright Plaza Inc. <drivetrust@drivetrust.com>
